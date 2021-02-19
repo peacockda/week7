@@ -7,13 +7,13 @@ firebase.auth().onAuthStateChanged(async function(user) {
   if (user) {
     // Signed in
     console.log('signed in')
+    console.log(user.displayName)
 
     // Ensure the signed-in user is in the users collection
     db.collection('users').doc(user.uid).set({
       name: user.displayName,
       email: user.email
     })
-
     // Sign-out button
     document.querySelector('.sign-in-or-sign-out').innerHTML = `
       <button class="text-pink-500 underline sign-out">Sign Out</button>
@@ -27,15 +27,16 @@ firebase.auth().onAuthStateChanged(async function(user) {
     // Listen for the form submit and create/render the new post
     document.querySelector('form').addEventListener('submit', async function(event) {
       event.preventDefault()
-      let postUsername = document.querySelector('#username').value
+      let postUsername = user.displayName
       let postImageUrl = document.querySelector('#image-url').value
-      let postNumberOfLikes = 0
+      // let postNumberOfLikes = 0
       let docRef = await db.collection('posts').add({ 
         username: postUsername, 
         imageUrl: postImageUrl, 
-        likes: 0,
+        // likes: 0,
         created: firebase.firestore.FieldValue.serverTimestamp()
       })
+      document.querySelector('#image-url').value = ''
       let postId = docRef.id // the newly created document's ID
       renderPost(postId, postUsername, postImageUrl, postNumberOfLikes)
     })
@@ -48,7 +49,10 @@ firebase.auth().onAuthStateChanged(async function(user) {
       let postData = posts[i].data()
       let postUsername = postData.username
       let postImageUrl = postData.imageUrl
-      let postNumberOfLikes = postData.likes
+      let likeDocs = await db.collection('likes')
+                             .where('postId', '==', postId)
+                             .get()
+      let postNumberOfLikes = likeDocs.size
       renderPost(postId, postUsername, postImageUrl, postNumberOfLikes)
     }
 
@@ -92,15 +96,39 @@ async function renderPost(postId, postUsername, postImageUrl, postNumberOfLikes)
       </div>
     </div>
   `)
+
   document.querySelector(`.post-${postId} .like-button`).addEventListener('click', async function(event) {
     event.preventDefault()
-    console.log(`post ${postId} like button clicked!`)
-    let existingNumberOfLikes = document.querySelector(`.post-${postId} .likes`).innerHTML
-    let newNumberOfLikes = parseInt(existingNumberOfLikes) + 1
-    document.querySelector(`.post-${postId} .likes`).innerHTML = newNumberOfLikes
-    await db.collection('posts').doc(postId).update({
-      likes: firebase.firestore.FieldValue.increment(1)
-    })
+    // console.log(`post ${postId} like button clicked!`)
+    let likeCheck = await db.collection('likes')
+                            .where('postId', '==', postId)
+                            .where('user', '==', firebase.auth().currentUser.uid)
+                            .get()
+    // console.log(likeCheck.size)
+    if (likeCheck.size == 0) {
+      console.log('adding a like')
+      await db.collection('likes').add({      
+        user: firebase.auth().currentUser.uid,
+        postId: postId
+      })
+      let existingNumberOfLikes = document.querySelector(`.post-${postId} .likes`).innerHTML
+      let newNumberOfLikes = parseInt(existingNumberOfLikes) + 1
+      document.querySelector(`.post-${postId} .likes`).innerHTML = newNumberOfLikes
+      // await db.collection('posts').doc(postId).update({
+      //   likes: firebase.firestore.FieldValue.increment(1)
+      // })
+    } else {
+      console.log('Already liked! Unliking...')
+      docRef = await db.collection('likes')
+                        .where('postId', '==', postId)
+                        .where('user', '==', firebase.auth().currentUser.uid).get()
+      // console.log(docRef.docs[0].id)
+      // console.log(docRef.id)
+      await db.collection('likes').doc(docRef.docs[0].id).delete()
+      let existingNumberOfLikes = document.querySelector(`.post-${postId} .likes`).innerHTML
+      let newNumberOfLikes = parseInt(existingNumberOfLikes) - 1
+      document.querySelector(`.post-${postId} .likes`).innerHTML = newNumberOfLikes
+    }
   })
 }
 
